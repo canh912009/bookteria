@@ -1,0 +1,18 @@
+namespace: bookteria-prod
+
+mysql:
+  persistenceSize: 50Gi
+  resourcesPreset: medium
+
+mongodb:
+  rootUser: root
+  persistenceSize: 100Gi
+  resourcesPreset: medium
+
+kafka:
+  replicaCount: 3
+  persistenceSize: 100Gi
+  resourcesPreset: medium
+
+neo4j:
+  persistenceSize: 100Gi

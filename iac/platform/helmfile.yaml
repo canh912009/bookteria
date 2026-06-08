@@ -1,0 +1,105 @@
+environments:
+  stg:
+    values:
+      - values/stg.yaml
+  prod:
+    values:
+      - values/prod.yaml
+
+repositories:
+  - name: ingress-nginx
+    url: https://kubernetes.github.io/ingress-nginx
+  - name: jetstack
+    url: https://charts.jetstack.io
+  - name: external-secrets
+    url: https://charts.external-secrets.io
+  - name: metrics-server
+    url: https://kubernetes-sigs.github.io/metrics-server/
+  - name: bitnami
+    url: https://charts.bitnami.com/bitnami
+  - name: neo4j
+    url: https://helm.neo4j.com/neo4j
+
+releases:
+  - name: ingress-nginx
+    namespace: ingress-nginx
+    chart: ingress-nginx/ingress-nginx
+    createNamespace: true
+    values:
+      - controller:
+          service:
+            type: LoadBalancer
+
+  - name: cert-manager
+    namespace: cert-manager
+    chart: jetstack/cert-manager
+    createNamespace: true
+    values:
+      - crds:
+          enabled: true
+
+  - name: external-secrets
+    namespace: external-secrets
+    chart: external-secrets/external-secrets
+    createNamespace: true
+
+  - name: metrics-server
+    namespace: kube-system
+    chart: metrics-server/metrics-server
+
+  - name: mysql
+    namespace: {{ .Values.namespace }}
+    chart: bitnami/mysql
+    createNamespace: true
+    values:
+      - auth:
+          rootPassword: {{ requiredEnv "MYSQL_ROOT_PASSWORD" | quote }}
+          database: bookteria_identity
+        primary:
+          persistence:
+            size: {{ .Values.mysql.persistenceSize }}
+          resourcesPreset: {{ .Values.mysql.resourcesPreset | quote }}
+
+  - name: mongodb
+    namespace: {{ .Values.namespace }}
+    chart: bitnami/mongodb
+    createNamespace: true
+    values:
+      - auth:
+          rootUser: {{ .Values.mongodb.rootUser | quote }}
+          rootPassword: {{ requiredEnv "MONGODB_ROOT_PASSWORD" | quote }}
+        architecture: standalone
+        persistence:
+          size: {{ .Values.mongodb.persistenceSize }}
+        resourcesPreset: {{ .Values.mongodb.resourcesPreset | quote }}
+
+  - name: kafka
+    namespace: {{ .Values.namespace }}
+    chart: bitnami/kafka
+    createNamespace: true
+    values:
+      - kraft:
+          enabled: true
+        controller:
+          replicaCount: {{ .Values.kafka.replicaCount }}
+          persistence:
+            size: {{ .Values.kafka.persistenceSize }}
+          resourcesPreset: {{ .Values.kafka.resourcesPreset | quote }}
+        listeners:
+          client:
+            protocol: PLAINTEXT
+
+  - name: neo4j
+    namespace: {{ .Values.namespace }}
+    chart: neo4j/neo4j
+    createNamespace: true
+    values:
+      - neo4j:
+          name: neo4j
+          password: {{ requiredEnv "NEO4J_PASSWORD" | quote }}
+        volumes:
+          data:
+            mode: defaultStorageClass
+            defaultStorageClass:
+              requests:
+                storage: {{ .Values.neo4j.persistenceSize }}

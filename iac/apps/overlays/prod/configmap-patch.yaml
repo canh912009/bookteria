@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: bookteria-app-config
+data:
+  APP_FILE_DOWNLOAD_PREFIX: https://api.bookteria.local/api/v1/file/media/download/
+  REACT_APP_API_GATEWAY: https://api.bookteria.local/api/v1

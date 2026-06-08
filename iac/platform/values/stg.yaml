@@ -1,0 +1,18 @@
+namespace: bookteria-stg
+
+mysql:
+  persistenceSize: 8Gi
+  resourcesPreset: small
+
+mongodb:
+  rootUser: root
+  persistenceSize: 8Gi
+  resourcesPreset: small
+
+kafka:
+  replicaCount: 1
+  persistenceSize: 8Gi
+  resourcesPreset: small
+
+neo4j:
+  persistenceSize: 8Gi
