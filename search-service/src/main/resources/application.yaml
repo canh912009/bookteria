@@ -1,0 +1,10 @@
+server:
+  port: 8086
+  servlet:
+    context-path: /search
+
+spring:
+  application:
+    name: search-service
+  elasticsearch:
+    uris: http://localhost:9200
