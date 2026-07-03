@@ -23,10 +23,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -107,14 +104,30 @@ public class ChatMessageService {
                                 Function.identity()));
 
         ChatMessageResponse chatMessageResponse = chatMessageMapper.toChatMessageResponse(chatMessage);
-        socketIOServer.getAllClients().forEach(client -> {
-            var webSocketSession = webSocketSessions.get(client.getSessionId().toString());
 
-            if (Objects.nonNull(webSocketSession)) {
-                String message = null;
+//        socketIOServer.getAllClients().forEach(client -> {
+//            var webSocketSession = webSocketSessions.get(client.getSessionId().toString());
+//
+//            if (Objects.nonNull(webSocketSession)) {
+//                String message = null;
+//                try {
+//                    chatMessageResponse.setMe(webSocketSession.getUserId().equals(userId));
+//                    message = objectMapper.writeValueAsString(chatMessageResponse);
+//                    client.sendEvent("message", message);
+//                } catch (JsonProcessingException e) {
+//                    throw new RuntimeException(e);
+//                }
+//            }
+//        });
+
+        webSocketSessions.values().forEach(webSocketSession -> {
+            var client = socketIOServer.getClient(
+                    UUID.fromString(webSocketSession.getSocketSessionId()));
+
+            if (Objects.nonNull(client)) {
                 try {
                     chatMessageResponse.setMe(webSocketSession.getUserId().equals(userId));
-                    message = objectMapper.writeValueAsString(chatMessageResponse);
+                    String message = objectMapper.writeValueAsString(chatMessageResponse);
                     client.sendEvent("message", message);
                 } catch (JsonProcessingException e) {
                     throw new RuntimeException(e);
