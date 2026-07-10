@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.CollectionUtils;
 
 import com.devteria.identity.dto.request.AuthenticationRequest;
@@ -22,10 +23,12 @@ import com.devteria.identity.dto.response.AuthenticationResponse;
 import com.devteria.identity.dto.response.IntrospectResponse;
 import com.devteria.identity.entity.InvalidatedToken;
 import com.devteria.identity.entity.User;
+import com.devteria.identity.entity.UserSession;
 import com.devteria.identity.exception.AppException;
 import com.devteria.identity.exception.ErrorCode;
 import com.devteria.identity.repository.InvalidatedTokenRepository;
 import com.devteria.identity.repository.UserRepository;
+import com.devteria.identity.repository.UserSessionRepository;
 import com.nimbusds.jose.*;
 import com.nimbusds.jose.crypto.MACSigner;
 import com.nimbusds.jose.crypto.MACVerifier;
@@ -43,8 +46,11 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @FieldDefaults(level = AccessLevel.PRIVATE, makeFinal = true)
 public class AuthenticationService {
+    private static final int MAX_ACTIVE_SESSIONS = 3;
+
     UserRepository userRepository;
     InvalidatedTokenRepository invalidatedTokenRepository;
+    UserSessionRepository userSessionRepository;
 
     @NonFinal
     @Value("${jwt.signerKey}")
@@ -77,6 +83,7 @@ public class AuthenticationService {
                 .valid(isValid).build();
     }
 
+    @Transactional
     public AuthenticationResponse authenticate(AuthenticationRequest request) {
         PasswordEncoder passwordEncoder = new BCryptPasswordEncoder(10);
         var user = userRepository
@@ -87,59 +94,86 @@ public class AuthenticationService {
 
         if (!authenticated) throw new AppException(ErrorCode.UNAUTHENTICATED);
 
-        var token = generateToken(user);
+        var sessionId = UUID.randomUUID().toString();
+        var tokenInfo = generateToken(user, sessionId);
+        var now = new Date();
 
-        return AuthenticationResponse.builder().token(token).build();
+        userSessionRepository.save(UserSession.builder()
+                .id(sessionId)
+                .userId(user.getId())
+                .tokenId(tokenInfo.tokenId())
+                .deviceId(request.getDeviceId())
+                .deviceName(request.getDeviceName())
+                .createdAt(now)
+                .lastSeenAt(now)
+                .expiresAt(tokenInfo.refreshableExpiryDate())
+                .revoked(false)
+                .build());
+
+        enforceSessionLimit(user.getId(), now);
+
+        return AuthenticationResponse.builder()
+                .token(tokenInfo.token())
+                .expiryTime(tokenInfo.expiryDate())
+                .sessionId(sessionId)
+                .build();
     }
 
+    @Transactional
     public void logout(LogoutRequest request) throws ParseException, JOSEException {
         try {
             var signToken = verifyToken(request.getToken(), true);
 
-            String jit = signToken.getJWTClaimsSet().getJWTID();
-            Date expiryTime = signToken.getJWTClaimsSet().getExpirationTime();
-
-            InvalidatedToken invalidatedToken =
-                    InvalidatedToken.builder().id(jit).expiryTime(expiryTime).build();
-
-            invalidatedTokenRepository.save(invalidatedToken);
+            invalidateToken(signToken);
+            revokeSession(signToken, "LOGOUT");
         } catch (AppException exception){
             log.info("Token already expired");
         }
     }
 
+    @Transactional
     public AuthenticationResponse refreshToken(RefreshRequest request) throws ParseException, JOSEException {
         var signedJWT = verifyToken(request.getToken(), true);
 
-        var jit = signedJWT.getJWTClaimsSet().getJWTID();
-        var expiryTime = signedJWT.getJWTClaimsSet().getExpirationTime();
-
-        InvalidatedToken invalidatedToken =
-                InvalidatedToken.builder().id(jit).expiryTime(expiryTime).build();
-
-        invalidatedTokenRepository.save(invalidatedToken);
+        invalidateToken(signedJWT);
 
         var username = signedJWT.getJWTClaimsSet().getSubject();
 
         var user =
                 userRepository.findByUsername(username).orElseThrow(() -> new AppException(ErrorCode.UNAUTHENTICATED));
 
-        var token = generateToken(user);
+        var sessionId = signedJWT.getJWTClaimsSet().getStringClaim("sid");
+        var tokenInfo = generateToken(user, sessionId);
+        var session = userSessionRepository
+                .findById(sessionId)
+                .orElseThrow(() -> new AppException(ErrorCode.UNAUTHENTICATED));
 
-        return AuthenticationResponse.builder().token(token).build();
+        session.setTokenId(tokenInfo.tokenId());
+        session.setLastSeenAt(new Date());
+        session.setExpiresAt(tokenInfo.refreshableExpiryDate());
+        userSessionRepository.save(session);
+
+        return AuthenticationResponse.builder()
+                .token(tokenInfo.token())
+                .expiryTime(tokenInfo.expiryDate())
+                .sessionId(sessionId)
+                .build();
     }
 
-    private String generateToken(User user) {
+    private TokenInfo generateToken(User user, String sessionId) {
         JWSHeader header = new JWSHeader(JWSAlgorithm.HS512);
+        var issueTime = new Date();
+        var expiryTime = new Date(Instant.now().plus(VALID_DURATION, ChronoUnit.SECONDS).toEpochMilli());
+        var refreshableExpiryTime = new Date(Instant.now().plus(REFRESHABLE_DURATION, ChronoUnit.SECONDS).toEpochMilli());
+        var tokenId = UUID.randomUUID().toString();
 
         JWTClaimsSet jwtClaimsSet = new JWTClaimsSet.Builder()
                 .subject(user.getId())
                 .issuer("devteria.com")
-                .issueTime(new Date())
-                .expirationTime(new Date(
-                        Instant.now().plus(VALID_DURATION, ChronoUnit.SECONDS).toEpochMilli()
-                ))
-                .jwtID(UUID.randomUUID().toString())
+                .issueTime(issueTime)
+                .expirationTime(expiryTime)
+                .jwtID(tokenId)
+                .claim("sid", sessionId)
                 .claim("scope", buildScope(user))
                 .build();
 
@@ -149,7 +183,7 @@ public class AuthenticationService {
 
         try {
             jwsObject.sign(new MACSigner(SIGNER_KEY.getBytes()));
-            return jwsObject.serialize();
+            return new TokenInfo(jwsObject.serialize(), expiryTime, refreshableExpiryTime, tokenId);
         } catch (JOSEException e) {
             log.error("Cannot create token", e);
             throw new RuntimeException(e);
@@ -173,7 +207,55 @@ public class AuthenticationService {
         if (invalidatedTokenRepository.existsById(signedJWT.getJWTClaimsSet().getJWTID()))
             throw new AppException(ErrorCode.UNAUTHENTICATED);
 
+        var sessionId = signedJWT.getJWTClaimsSet().getStringClaim("sid");
+        if (Objects.isNull(sessionId)) throw new AppException(ErrorCode.UNAUTHENTICATED);
+
+        var now = new Date();
+        var session = userSessionRepository
+                .findById(sessionId)
+                .orElseThrow(() -> new AppException(ErrorCode.UNAUTHENTICATED));
+        if (session.isRevoked() || session.getExpiresAt().before(now)) throw new AppException(ErrorCode.UNAUTHENTICATED);
+
+        session.setLastSeenAt(now);
+        userSessionRepository.save(session);
+
         return signedJWT;
+    }
+
+    private void enforceSessionLimit(String userId, Date now) {
+        var activeSessions = userSessionRepository.findByUserIdAndRevokedFalseAndExpiresAtAfterOrderByLastSeenAtAsc(
+                userId, now);
+
+        while (activeSessions.size() > MAX_ACTIVE_SESSIONS) {
+            var sessionToRevoke = activeSessions.remove(0);
+            sessionToRevoke.setRevoked(true);
+            sessionToRevoke.setRevokedReason("KICKED_BY_NEW_LOGIN");
+            userSessionRepository.save(sessionToRevoke);
+            invalidatedTokenRepository.save(InvalidatedToken.builder()
+                    .id(sessionToRevoke.getTokenId())
+                    .expiryTime(sessionToRevoke.getExpiresAt())
+                    .build());
+        }
+    }
+
+    private void revokeSession(SignedJWT signedJWT, String reason) throws ParseException {
+        var sessionId = signedJWT.getJWTClaimsSet().getStringClaim("sid");
+        if (Objects.isNull(sessionId)) return;
+
+        userSessionRepository.findById(sessionId).ifPresent(session -> {
+            session.setRevoked(true);
+            session.setRevokedReason(reason);
+            userSessionRepository.save(session);
+        });
+    }
+
+    private void invalidateToken(SignedJWT signedJWT) throws ParseException {
+        var invalidatedToken = InvalidatedToken.builder()
+                .id(signedJWT.getJWTClaimsSet().getJWTID())
+                .expiryTime(signedJWT.getJWTClaimsSet().getExpirationTime())
+                .build();
+
+        invalidatedTokenRepository.save(invalidatedToken);
     }
 
     private String buildScope(User user) {
@@ -189,5 +271,5 @@ public class AuthenticationService {
         return stringJoiner.toString();
     }
 
-    private record TokenInfo(String token, Date expiryDate) {}
+    private record TokenInfo(String token, Date expiryDate, Date refreshableExpiryDate, String tokenId) {}
 }
