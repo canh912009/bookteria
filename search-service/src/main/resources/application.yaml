@@ -8,3 +8,18 @@ spring:
     name: search-service
   elasticsearch:
     uris: http://localhost:9200
+  # Cấu hình Kafka cho search-service:
+  # - Consumer: lắng nghe topic "search-index-events" để đồng bộ dữ liệu từ Outbox của các service khác.
+  # - Producer: dùng cho DeadLetterPublishingRecoverer để đẩy các bản tin lỗi sang topic "search-index-events.DLT".
+  kafka:
+    bootstrap-servers: localhost:9094
+    consumer:
+      group-id: search-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer

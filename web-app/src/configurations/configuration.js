@@ -1,5 +1,5 @@
 export const CONFIG = {
-  API_GATEWAY: "http://localhost:8888/api/v1",
+  API_GATEWAY: "http://192.168.105.77:8888/api/v1",
 };
 
 export const API = {
@@ -14,4 +14,7 @@ export const API = {
   CREATE_CONVERSATION: "/chat/conversations/create",
   CREATE_MESSAGE: "/chat/messages/create",
   GET_CONVERSATION_MESSAGES: "/chat/messages",
+  // Các endpoint của search-service đi qua API Gateway (/api/v1/search/**)
+  SEARCH: "/search",
+  SEARCH_DOCUMENTS: "/search/documents",
 };

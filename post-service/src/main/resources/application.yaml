@@ -8,8 +8,21 @@ spring:
   data:
     mongodb:
       uri: mongodb://root:root@localhost:27017/post-service?authSource=admin
+  # Cấu hình Kafka Producer cho Transactional Outbox Relay:
+  # - acks: all + enable.idempotence: true đảm bảo gửi tin cậy (không mất, không lặp ở tầng broker)
+  kafka:
+    bootstrap-servers: localhost:9094
+    producer:
+      acks: all
+      retries: 3
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      properties:
+        enable.idempotence: true
 
 app:
   services:
     profile:
       url: http://localhost:8081/profile
+    search:
+      url: http://localhost:8086/search

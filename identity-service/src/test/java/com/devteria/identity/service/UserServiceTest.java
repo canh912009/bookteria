@@ -32,7 +32,7 @@ public class UserServiceTest {
     @MockBean
     private UserRepository userRepository;
 
-    private UserCreationRequest request;mvn clean
+    private UserCreationRequest request;
     private UserResponse userResponse;
     private User user;
     private LocalDate dob;
