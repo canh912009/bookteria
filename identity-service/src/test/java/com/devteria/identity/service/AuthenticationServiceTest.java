@@ -157,7 +157,8 @@ class AuthenticationServiceTest {
 
         assertThat(s1.isRevoked()).isTrue();
         assertThat(s1.getRevokedReason()).isEqualTo("KICKED_BY_NEW_LOGIN");
-        assertThat(s2.isRevoked()).isFalse();
+        assertThat(s2.isRevoked()).isTrue();
+        assertThat(s2.getRevokedReason()).isEqualTo("KICKED_BY_NEW_LOGIN");
         assertThat(s3.isRevoked()).isFalse();
     }
 
