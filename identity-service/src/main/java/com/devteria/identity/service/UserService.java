@@ -9,6 +9,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.devteria.event.dto.NotificationEvent;
 import com.devteria.identity.constant.PredefinedRole;
@@ -43,6 +44,12 @@ public class UserService {
     ProfileClient profileClient;
     KafkaTemplate<String, Object> kafkaTemplate;
 
+    /**
+     * Tạo mới tài khoản người dùng.
+     * Bọc @Transactional để nếu bước gọi sang profile-service (Neo4j) bị lỗi,
+     * dữ liệu User vừa lưu trong MySQL cũng sẽ tự động rollback, tránh lệch dữ liệu giữa MySQL và Neo4j.
+     */
+    @Transactional
     public UserResponse createUser(UserCreationRequest request) {
         User user = userMapper.toUser(request);
         user.setPassword(passwordEncoder.encode(request.getPassword()));
@@ -54,7 +61,7 @@ public class UserService {
         user.setEmailVerified(false);
 
         try {
-            user = userRepository.save(user);
+            user = userRepository.saveAndFlush(user);
         } catch (DataIntegrityViolationException exception) {
             throw new AppException(ErrorCode.USER_EXISTED);
         }

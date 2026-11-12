@@ -39,10 +39,9 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * Tầng nghiệp vụ quản lý hồ sơ người dùng (UserProfileService) áp dụng Transactional Outbox Pattern trên Neo4j.
  *
- * Vì Debezium CDC không có connector cho Neo4j, Transactional Outbox là giải pháp chuẩn xác nhất:
- * - Khi createProfile, updateMyProfile, hoặc updateAvatar được gọi, cả node "user_profile" và node "outbox_event"
- *   đều được ghi trong cùng một @Transactional của Neo4j.
- * - Tiến trình OutboxRelayService sẽ đọc các node "outbox_event" trạng thái PENDING và đẩy qua Kafka tới search-service.
+ * Khi createProfile, updateMyProfile, hoặc updateAvatar được gọi, cả node "user_profile" và node "outbox_event"
+ * đều được ghi trong cùng một @Transactional("transactionManager") của Neo4j.
+ * Tiến trình OutboxRelayService sẽ đọc các node "outbox_event" trạng thái PENDING và đẩy qua Kafka tới search-service.
  */
 @Service
 @RequiredArgsConstructor
@@ -58,7 +57,7 @@ public class UserProfileService {
     /**
      * Tạo hồ sơ người dùng mới và lưu sự kiện Outbox trong cùng 1 Neo4j Transaction.
      */
-    @Transactional
+    @Transactional("transactionManager")
     public UserProfileResponse createProfile(ProfileCreationRequest request) {
         UserProfile userProfile = userProfileMapper.toUserProfile(request);
         userProfile = userProfileRepository.save(userProfile);
@@ -105,7 +104,7 @@ public class UserProfileService {
     /**
      * Cập nhật thông tin hồ sơ và ghi sự kiện Outbox trong cùng 1 Neo4j Transaction.
      */
-    @Transactional
+    @Transactional("transactionManager")
     public UserProfileResponse updateMyProfile(UpdateProfileRequest request) {
         var authentication = SecurityContextHolder.getContext().getAuthentication();
         String userId = authentication.getName();
@@ -127,7 +126,7 @@ public class UserProfileService {
      * Cập nhật ảnh đại diện:
      * Tải ảnh lên file-service trước, sau đó mở transaction cập nhật UserProfile + ghi OutboxEvent nguyên tử.
      */
-    @Transactional
+    @Transactional("transactionManager")
     public UserProfileResponse updateAvatar(MultipartFile file) {
         var authentication = SecurityContextHolder.getContext().getAuthentication();
         String userId = authentication.getName();
